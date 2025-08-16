@@ -238,7 +238,7 @@ def hr_leave_page():
                 st.session_state.logged_in = False
                 st.session_state.user_id = None
                 st.session_state.user_role = None
-                st.experimental_rerun()
+                st.rerun()
 
     app = MultiApp()
     app.run()
