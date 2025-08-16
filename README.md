@@ -48,14 +48,7 @@ The Smart HR Management System is a full-stack Streamlit-based application desig
 - Email classification into: Important, General, and Spam
 - Secure environment configuration
 
-### 🔄 In Development (v1.1)
-- Enhanced error handling and logging
-- Performance optimizations for email processing
-- UI/UX improvements
-- Additional HR analytics
-
-### 🚀 Upcoming Features (v2.0)
-
+NOW-
 #### Smart Email Classification 2.0
 - **Two-tier Email Categorization**:
   - **Type 1: Internal Communications**
@@ -86,12 +79,57 @@ The Smart HR Management System is a full-stack Streamlit-based application desig
   - Interview scheduling
   - Status updates for applicants
   - Integration with calendar apps
+### 🚀 Upcoming Features (v2.0)
 
-#### Security & Compliance
-- End-to-end encryption for sensitive data
-- GDPR/CCPA compliance features
-- Audit logging for all actions
-- Role-based access controls
+#### 📊 Enhanced Email Management Dashboard
+```
+┌─────────────────────────────────────────────────┐
+│  🔍 EMAIL INTELLIGENCE DASHBOARD               │
+├───────────────────┬───────────────────────────┐
+│  📥 Inbox (42)    │  📊 Analytics             │
+│  📤 Sent          │  ┌─────────────────────┐  │
+│  📎 Attachments   │  │  Urgent: 12         │  │
+│  🗑️ Trash         │  │  Important: 18      │  │
+│  ⭐ Starred       │  │  Pending Review: 8   │  │
+└───────────────────┴───────────────────────────┘
+```
+
+#### 🏷️ Smart Email Categorization
+
+```mermaid
+graph TD
+    A[Incoming Email] --> B{Type?}
+    B -->|Internal| C[Department]
+    B -->|Recruitment| D[Application Stage]
+    C --> C1[HR]
+    C --> C2[Finance]
+    C --> C3[Engineering]
+    D --> D1[New Application]
+    D --> D2[Interview Stage]
+    D --> D3[Offer Stage]
+```
+
+##### 📌 Priority Matrix
+| Urgency \ Importance | High                    | Medium                | Low                 |
+|----------------------|-------------------------|----------------------|---------------------|
+| **High**            | 🔴 Immediate Response  | 🟡 Schedule Review   | 🟢 Read When Free   |
+| **Medium**           | 🟠 Today               | 🟢 This Week         | ⚪ Low Priority    |
+| **Low**              | 🟢 This Week           | ⚪ When Possible     | ⚪ Archive         |
+
+#### 🔍 Advanced Email Processing
+
+```
+📂 HR Emails
+├── 📁 Recruitment
+│   ├── 🟢 New Applications (5)
+│   ├── 🟡 Interview Stage (3)
+│   └── 🔴 Offers Pending (2)
+├── 📁 Employee Relations
+│   ├── 🟠 Grievances (3)
+│   └── 🟢 General (8)
+└── 📁 Compliance
+    └── ⚠️ Action Required (2)
+```
 
 ### 📅 Future Roadmap (v3.0+)
 - AI-powered candidate matching
@@ -99,7 +137,46 @@ The Smart HR Management System is a full-stack Streamlit-based application desig
 - Automated skill assessments
 - Team collaboration tools
 - Advanced analytics dashboard
-- Mobile application
+- Mobile application 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 🤖 Smart Features
+- **AI-Powered Inbox**
+  - 🎯 Priority Inbox with smart sorting
+  - 🔄 Auto-categorization of emails
+  - 📅 Smart scheduling suggestions
+  - 📝 Auto-generated response drafts
+
+- **Recruitment Assistant**
+  - 📄 Resume parsing & scoring
+  - 🎯 Candidate matching algorithm
+  - 📅 Automated interview scheduling
+  - 🔄 Status tracking
+
+- **Compliance & Security**
+  - 🔒 End-to-end encryption
+  - 📜 Audit trail
+  - 🛡️ Data leak prevention
+  - 👥 Role-based access
+
+#### Security & Compliance
+- End-to-end encryption for sensitive data
+- GDPR/CCPA compliance features
+- Audit logging for all actions
+- Role-based access controls
+
 
 ## 🚀 How to Run Locally
 
@@ -185,5 +262,4 @@ HR_management/
 
 
 🙋‍♂️ Made By
-Raunak Kumar
-B.Tech CSE @ USICT, GGSIPU
+Mukul Prasad
