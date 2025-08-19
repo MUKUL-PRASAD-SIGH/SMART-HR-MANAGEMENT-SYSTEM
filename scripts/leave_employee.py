@@ -1,85 +1,187 @@
 import streamlit as st
-from streamlit_option_menu import option_menu
-from db import connect_db
-import datetime
+import pymysql
+from dotenv import load_dotenv
+import os
+from datetime import datetime, date
+
+# Database connection function
+def get_db_connection():
+    """Create and return a database connection"""
+    try:
+        load_dotenv()
+        return pymysql.connect(
+            host=os.getenv('DB_HOST', 'localhost'),
+            user=os.getenv('DB_USER', 'root'),
+            password=os.getenv('DB_PASSWORD', ''),
+            database=os.getenv('DB_NAME', 'hrms'),
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    except Exception as e:
+        st.error(f"❌ Database error: {e}")
+        return None
 
 def request_leave_page():
-    st.header("Request Leave")
-
-    # Get logged-in user info
+    """Simplified leave request page"""
+    st.header("📝 Request Leave")
+    
+    # Check if user is logged in
+    if 'user_id' not in st.session_state:
+        st.error("Please log in first")
+        return
+        
     user_id = st.session_state.user_id
     name = st.session_state.user_name
-
-    # Leave form
+    
+    # Show success message if redirected after submission
+    if 'leave_submitted' in st.session_state and st.session_state.leave_submitted:
+        st.success("✅ Leave request submitted successfully!")
+        st.balloons()
+        del st.session_state.leave_submitted
+    
+    # Leave request form
     with st.form("leave_form"):
-        from_date = st.date_input("From Date", min_value=datetime.date.today())
-        to_date = st.date_input("To Date", min_value=from_date)
-        reason = st.text_area("Reason for Leave")
-
-        submit = st.form_submit_button("Submit Leave Request")
-
+        st.subheader("New Leave Request")
+        today = date.today()
+        
+        # Date inputs
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("From Date", min_value=today)
+        with col2:
+            end_date = st.date_input("To Date", min_value=start_date)
+            
+        reason = st.text_area("Reason", placeholder="Enter reason for leave")
+        submit = st.form_submit_button("Submit Request")
+    
+    # Handle form submission
     if submit:
-        conn = connect_db()         
-        cursor = conn.cursor() 
-
+        if not reason.strip():
+            st.error("Please enter a reason for leave")
+            return
+            
+        conn = None
         try:
-            cursor.execute(
-                "INSERT INTO leave_requests (user_id, name, from_date, to_date, reason, status) VALUES (%s, %s, %s, %s, %s, %s)",
-                (user_id, name, from_date, to_date, reason, "Pending")
-            )
-            conn.commit()
-            st.success("Leave request submitted successfully.")
+            conn = get_db_connection()
+            if not conn:
+                st.error("❌ Could not connect to database")
+                return
+                
+            with conn.cursor() as cursor:
+                # Insert new leave request
+                sql = """
+                INSERT INTO leave_requests 
+                (user_id, name, start_date, end_date, reason, status)
+                VALUES (%s, %s, %s, %s, %s, 'pending')
+                """
+                cursor.execute(sql, (user_id, name, start_date, end_date, reason))
+                conn.commit()
+                
+                # Set success flag and reload
+                st.session_state.leave_submitted = True
+                st.rerun()
+                
         except Exception as e:
-            st.error(f"Error submitting request: {e}")
+            st.error(f"Error submitting leave request: {e}")
         finally:
-            cursor.close()
+            if conn and hasattr(conn, 'open') and conn.open:
+                conn.close()
+    
+    # Show leave status
+    show_leave_status(user_id)
+
+def show_leave_status(user_id):
+    """Display leave status for the user"""
+    st.subheader("📋 My Leave Status")
+    
+    # Fetch leave requests
+    leaves = []
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            st.error("❌ Could not connect to database")
+            return
+            
+        with conn.cursor() as cursor:
+            # Get leave requests for this user
+            cursor.execute("""
+                SELECT id, start_date, end_date, reason, status, 
+                       COALESCE(hr_comment, '') as hr_comment,
+                       created_at
+                FROM leave_requests 
+                WHERE user_id = %s 
+                ORDER BY created_at DESC
+            """, (user_id,))
+            
+            leaves = cursor.fetchall()
+            
+    except Exception as e:
+        st.error(f"Error fetching leave requests: {e}")
+        return
+    finally:
+        if conn and hasattr(conn, 'open') and conn.open:
             conn.close()
+    
+    # Display leave requests
+    if not leaves:
+        st.info("No leave requests found. Submit a request above.")
+        return
+    
+    # Show each leave request
+    for leave in leaves:
+        # Format status with emoji
+        status = leave.get('status', 'pending').lower()
+        status_emoji = {
+            'pending': '🟡',
+            'approved': '✅',
+            'rejected': '❌',
+            'cancelled': '❌'
+        }.get(status, '❓')
+        
+        # Format dates
+        start_date = leave.get('start_date')
+        end_date = leave.get('end_date')
+        
+        # Create a simple display
+        with st.expander(f"{status_emoji} Leave #{leave.get('id')} - {status.title()}"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Request ID:** #{leave.get('id')}")
+                if start_date and end_date:
+                    st.write(f"**From:** {start_date}")
+                    st.write(f"**To:** {end_date}")
+                
+                # Calculate duration if possible
+                try:
+                    if start_date and end_date:
+                        if isinstance(start_date, str):
+                            start_date = datetime.strptime(str(start_date), '%Y-%m-%d').date()
+                        if isinstance(end_date, str):
+                            end_date = datetime.strptime(str(end_date), '%Y-%m-%d').date()
+                        duration = (end_date - start_date).days + 1
+                        st.write(f"**Duration:** {duration} day{'s' if duration > 1 else ''}")
+                except Exception as e:
+                    print(f"Error calculating duration: {e}")
+            
+            with col2:
+                status_display = f"**Status:** {status_emoji} {status.title()}"
+                st.markdown(status_display)
+                
+                if leave.get('hr_comment'):
+                    st.write(f"**HR Comment:** {leave.get('hr_comment')}")
+            
+            st.write("**Reason:**")
+            st.write(leave.get('reason', 'No reason provided'))
 
 def leave_status_page():
-    st.subheader("📋 Your Leave Status")
-
+    """Main leave status page that shows the status of all leave requests"""
     if "user_id" not in st.session_state:
         st.warning("Please log in to view your leave status.")
         return
-
-    try:
-        con = connect_db()
-        cur = con.cursor()
-
-        query = """
-            SELECT from_date, to_date, reason, status
-            FROM leave_requests
-            WHERE user_id = %s
-            ORDER BY from_date DESC
-        """
-        cur.execute(query, (st.session_state.user_id,))
-        leaves = cur.fetchall()
-
-        if not leaves:
-            st.info("You have not submitted any leave requests yet.")
-        else:
-            for leave in leaves:
-                from_date, to_date, reason, status = leave
-
-                status_icon = {
-                    "Pending": "🟡",
-                    "Approved": "✅",
-                    "Rejected": "❌"
-                }.get(status, "❓")
-
-                st.markdown(f"""
-                <div style='border:1px solid #ddd; padding:10px; margin-bottom:10px; border-radius:10px;'>
-                    <b>📅 From:</b> {from_date} to {to_date}  
-                    <br><b>📝 Reason:</b> {reason}  
-                    <br><b>📍 Status:</b> {status_icon} <b>{status}</b>
-                </div>
-                """, unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Error: {e}")
-    finally:
-        cur.close()
-        con.close()
+        
+    st.title("My Leave Status")
+    show_leave_status(st.session_state.user_id)
 
 def leave_history_page():
     st.subheader("📜 Leave History (Approved Only)")
@@ -89,21 +191,29 @@ def leave_history_page():
         cur = con.cursor()
 
         query = """
-            SELECT from_date, to_date, reason, status
+            SELECT start_date, end_date, reason, status
             FROM leave_requests
-            WHERE user_id = %s AND status = 'Approved'
-            ORDER BY from_date DESC
+            WHERE user_id = %s AND status = 'approved'
+            ORDER BY start_date DESC
         """
         cur.execute(query, (st.session_state.user_id,))
         leaves = cur.fetchall()
 
         if leaves:
             for leave in leaves:
+                # Convert the row to a dictionary for easier access
+                leave_dict = {
+                    'start_date': leave[0],
+                    'end_date': leave[1],
+                    'reason': leave[2],
+                    'status': leave[3].capitalize() if leave[3] else 'Pending'
+                }
+                
                 st.markdown(
                     f"""
-                    🟢 **{leave[0]} to {leave[1]}**  
-                    ✏️ **Reason:** {leave[2]}  
-                    ✅ **Status:** {leave[3]}
+                    🟢 **{leave_dict['start_date']} to {leave_dict['end_date']}**  
+                    ✏️ **Reason:** {leave_dict['reason']}  
+                    ✅ **Status:** {leave_dict['status']}
                     ---
                     """,
                     unsafe_allow_html=True
@@ -124,102 +234,50 @@ def resign_page():
         st.success("Resignation submitted successfully!")  # Replace with DB logic if needed
 
 def employee_leave_page():
-    class MultiApp:
-        def __init__(self):
-            self.apps = []
-
-        def add_app(self, title, func):
-            self.apps.append({
-                "title": title,
-                "function": func
-            })
-
-        def run(self):
-            with st.sidebar:
-                app = option_menu(
-                    menu_title="Employee Portal",
-                    options=["Request Leave", "Leave Status", "Leave History", "Take Resign","Email", "Logout"],
-                    icons=["file-earmark-plus", "clipboard2-check", "clock-history", "person-x","envelope", "box-arrow-left"],
-                    menu_icon="person-fill",
-                    default_index=0,
-                    styles={
-                        "container": {"padding": "5!important", "background-color": '#000'},
-                        "icon": {"color": "white", "font-size": "23px"},
-                        "nav-link": {"color": "white", "font-size": "20px", "--hover-color": "#3363b0"},
-                        "nav-link-selected": {"background-color": "#3363b0"},
-                    }
-                )
-
-            if app == "Request Leave":
-                request_leave_page()
-            elif app == "Leave Status":
-                leave_status_page()
-            elif app == "Leave History":
-                leave_history_page()
-            elif app == "Take Resign":
-                resign_page()
-            elif app == "Email":
-                from gmail_reader import read_emails, display_emails
-                from email_classifier import classify_emails_with_gemini
-                import time
-
-                st.title("📬 Employee Email Dashboard")
-                
-                # Add a refresh button
-                if st.button("🔄 Refresh Emails"):
-                    st.rerun()
-                
-                # Show loading spinner while fetching emails
-                with st.spinner("Fetching your emails..."):
-                    emails = read_emails(max_results=15)
-                
-                if not emails:
-                    st.warning("No emails found or there was an error fetching your emails.")
-                else:
-                    # Display emails in a tabbed interface
-                    tab1, tab2 = st.tabs(["📧 All Emails", "🔍 Smart Classification"])
-                    
-                    with tab1:
-                        st.subheader("Your Inbox")
-                        display_emails(emails)
-                    
-                    with tab2:
-                        st.subheader("Smart Email Classification")
-                        st.info("Classifying emails using AI...")
-                        try:
-                            with st.spinner("Analyzing emails with Gemini AI..."):
-                                result = classify_emails_with_gemini(emails)
-                            
-                            if result:
-                                category_emojis = {
-                                    "Important": "🚨",
-                                    "General": "📂",
-                                    "Spam": "📢"
-                                }
-
-                                # Rename categories
-                                renamed_result = {
-                                    "Important": result.get("Important", []),
-                                    "General": result.get("General", []),
-                                    "Spam": result.get("Spam", [])
-                                }
-
-                                for category in ["Important", "General", "Spam"]:
-                                    with st.expander(f"{category_emojis[category]} {category} Emails", expanded=True):
-                                        if renamed_result[category]:
-                                            for mail in renamed_result[category]:
-                                                st.write(f"➡️ {mail}")
-                                        else:
-                                            st.info("No emails in this category.")
-                            else:
-                                st.error("Failed to classify emails. Please try again later.")
-                        except Exception as e:
-                            st.error(f"An error occurred during email classification: {str(e)}")
-            elif app == "Logout":
-                st.session_state.logged_in = False
-                st.session_state.user_id = None
-                st.session_state.user_role = None
-                st.experimental_rerun()
-
-    app = MultiApp()
+    """Main employee leave management page with simplified navigation"""
+    # Check if user is logged in
+    if 'user_id' not in st.session_state:
+        st.error("Please log in to access this page")
+        return
+    
+    # Sidebar navigation
+    st.sidebar.title(f"👤 {st.session_state.get('user_name', 'Employee')}")
+    
+    # Navigation options
+    nav_options = ["🏠 Dashboard", "📝 Request Leave", "📋 Leave Status"]
+    selected = st.sidebar.radio("Navigation", nav_options)
+    
+    # Main content area
+    st.title("🏝️ Employee Leave Management")
+    
+    # Show appropriate page based on selection
+    if selected == "🏠 Dashboard":
+        st.subheader("Welcome to your Leave Dashboard")
+        st.write("Use the menu to manage your leave requests.")
+        
+        # Quick stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Leave Requests", "5")
+        with col2:
+            st.metric("Approved", "3")
+        with col3:
+            st.metric("Pending", "2")
+        
+        # Show recent leave requests
+        show_leave_status(st.session_state.user_id)
+        
+    elif selected == "📝 Request Leave":
+        request_leave_page()
+        
+    elif selected == "📋 Leave Status":
+        show_leave_status(st.session_state.user_id)
+    
+    # Logout button at bottom of sidebar
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.user_role = None
+        st.rerun()
     app.run()

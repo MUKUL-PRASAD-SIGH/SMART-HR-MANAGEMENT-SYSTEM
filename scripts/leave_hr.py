@@ -1,54 +1,169 @@
 # leave_hr.py
 import streamlit as st
+import pymysql
 from db import connect_db
 from streamlit_option_menu import option_menu
 
 def approve_leave_page():
-    st.subheader("Approve / Reject Leave Requests")
-    con = connect_db()
-    cur = con.cursor()
-    try:
-        cur.execute("""
-            SELECT lr.user_id, u.name, lr.start_date, lr.end_date, lr.reason, lr.status
-            FROM leave_requests lr
-            JOIN users u ON lr.user_id = u.id
-            WHERE lr.status = 'pending'
-        """)
-        requests = cur.fetchall()
+    st.title("📋 Leave Requests Dashboard")
+    st.markdown("---")
 
-        if requests:
-            for index, request in enumerate(requests):
-                user_id, name, from_date, to_date, reason, status = request
-                with st.expander(f"Request from {name} ({from_date} to {to_date})"):
-                    st.write(f"**Reason:** {reason}")
+    # Only HR can access this page
+    if st.session_state.user_role != 'hr':
+        st.warning("⛔ You don't have permission to access this page.")
+        return
+
+    # Add tabs for different statuses
+    tab1, tab2, tab3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    
+    with tab1:
+        show_leave_requests('pending', "No pending leave requests! 🎉")
+    
+    with tab2:
+        show_leave_requests('approved', "No approved leave requests yet.")
+    
+    with tab3:
+        show_leave_requests('rejected', "No rejected leave requests.")
+
+def show_leave_requests(status, empty_message):
+    """Helper function to display leave requests by status"""
+    conn = None
+    cursor = None
+    
+    try:
+        conn = connect_db()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # Get leave requests with the specified status
+        cursor.execute("""
+            SELECT lr.id, lr.user_id, lr.name, lr.start_date, lr.end_date, 
+                   lr.reason, lr.status, lr.created_at,
+                   COALESCE(lr.hr_comment, '') as hr_comment
+            FROM leave_requests lr
+            WHERE lr.status = %s
+            ORDER BY lr.created_at DESC
+        """, (status,))
+        
+        requests = cursor.fetchall()
+        
+        if not requests:
+            st.info(empty_message)
+            return
+        
+        # Display each request
+        for req in requests:
+            with st.container():
+                # Calculate days requested
+                days = (req['end_date'] - req['start_date']).days + 1
+                
+                # Create expandable section for each request
+                with st.expander(f"📅 {req['name']} - {days} day{'s' if days > 1 else ''} ({req['start_date']} to {req['end_date']})"):
                     col1, col2 = st.columns(2)
+                    
                     with col1:
-                        if st.button("✅ Approve", key=f"approve_{index}"):
-                            cur.execute("""
-                                UPDATE leave_requests 
-                                SET status = 'approved' 
-                                WHERE user_id = %s AND start_date = %s AND end_date = %s
-                            """, (user_id, from_date, to_date))
-                            con.commit()
-                            st.success("Leave Approved!")
-                            st.rerun()
+                        st.markdown(f"**Employee ID:** {req['user_id']}")
+                        st.markdown(f"**Requested On:** {req['created_at'].strftime('%Y-%m-%d %H:%M')}")
+                        st.markdown(f"**Status:** {req['status'].capitalize()}")
+                    
                     with col2:
-                        if st.button("❌ Reject", key=f"reject_{index}"):
-                            cur.execute("""
-                                UPDATE leave_requests 
-                                SET status = 'rejected' 
-                                WHERE user_id = %s AND start_date = %s AND end_date = %s
-                            """, (user_id, from_date, to_date))
-                            con.commit()
-                            st.error("Leave Rejected!")
-                            st.rerun()
-        else:
-            st.info("No pending leave requests.")
+                        st.markdown(f"**From:** {req['start_date']}")
+                        st.markdown(f"**To:** {req['end_date']}")
+                        st.markdown(f"**Duration:** {days} day{'s' if days > 1 else ''}")
+                    
+                    st.markdown("**Reason:**")
+                    st.info(req['reason'])
+                    
+                    # Show HR comment if available
+                    if req['hr_comment']:
+                        st.markdown("**Your Comment:**")
+                        st.warning(req['hr_comment'])
+                    
+                    # Action buttons for pending requests
+                    if status == 'pending':
+                        st.markdown("### Take Action")
+                        
+                        # Use a form to handle the comment and action together
+                        with st.form(key=f"action_form_{req['id']}"):
+                            comment = st.text_area("Add a comment (optional)", 
+                                                key=f"comment_{req['id']}",
+                                                help="Add any notes for the employee")
+                            
+                            col1, col2, _ = st.columns([1, 1, 2])
+                            with col1:
+                                if st.form_submit_button("✅ Approve", use_container_width=True):
+                                    update_leave_status(req['id'], 'approved', comment)
+                                    st.rerun()
+                            with col2:
+                                if st.form_submit_button("❌ Reject", use_container_width=True):
+                                    update_leave_status(req['id'], 'rejected', comment)
+                                    st.rerun()
+                    
+                    st.markdown("---")  # Divider between requests
+    
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"❌ Error loading {status} leave requests: {str(e)}")
     finally:
-        cur.close()
-        con.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def update_leave_status(request_id, status, comment=None):
+    """Update the status of a leave request and add optional HR comment"""
+    conn = None
+    cursor = None
+    
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        # Update the leave request status and add HR comment if provided
+        if comment and comment.strip():
+            cursor.execute(
+                """
+                UPDATE leave_requests 
+                SET status = %s, 
+                    hr_comment = %s,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (status, comment.strip(), request_id)
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE leave_requests 
+                SET status = %s,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (status, request_id)
+            )
+            
+        conn.commit()
+        st.success(f"✅ Leave request {status} successfully!")
+        
+        # Get request details for notification
+        cursor.execute(
+            "SELECT user_id, name, start_date, end_date FROM leave_requests WHERE id = %s",
+            (request_id,)
+        )
+        req = cursor.fetchone()
+        
+        if req:
+            # In a real app, you might want to send an email notification here
+            st.toast(f"Notification: {req[1]}'s leave request has been {status}")
+    
+    except Exception as e:
+        error_msg = f"❌ Error updating leave status: {str(e)}"
+        st.error(error_msg)
+        import traceback
+        st.error(f"Technical details: {traceback.format_exc()}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 def employee_details_page():

@@ -13,11 +13,14 @@ otp_storage = {}
 def generate_otp(email: str) -> str:
     """Generate a 6-digit OTP and store it with timestamp"""
     otp = str(random.randint(100000, 999999))
-    otp_storage[email] = {
+    otp_data = {
         'otp': otp,
         'timestamp': time.time(),
         'verified': False
     }
+    otp_storage[email] = otp_data
+    print(f"🔑 Generated OTP for {email}: {otp} (Stored at {otp_data['timestamp']})")
+    print(f"Current OTP storage: {otp_storage}")
     return otp
 
 def send_otp_email(receiver_email: str, otp: str):
@@ -60,21 +63,31 @@ def verify_otp(email: str, user_otp: str) -> bool:
     """Verify if the provided OTP is correct and not expired"""
     OTP_VALIDITY = 600  # 10 minutes in seconds
     
+    print(f"\n🔍 Verifying OTP for {email}")
+    print(f"Stored OTP data: {otp_storage.get(email, 'No OTP found')}")
+    print(f"User provided OTP: {user_otp}")
+    
     if email not in otp_storage:
+        print("❌ No OTP found for this email")
         return False
         
     stored_otp = otp_storage[email]
+    current_time = time.time()
+    time_elapsed = current_time - stored_otp['timestamp']
     
     # Check if OTP is expired
-    if (time.time() - stored_otp['timestamp']) > OTP_VALIDITY:
+    if time_elapsed > OTP_VALIDITY:
+        print(f"❌ OTP expired! Elapsed time: {time_elapsed:.1f}s (Max: {OTP_VALIDITY}s)")
         del otp_storage[email]
         return False
     
     # Check if OTP matches
     if stored_otp['otp'] == user_otp:
+        print("✅ OTP matched successfully!")
         stored_otp['verified'] = True
         return True
     
+    print(f"❌ OTP mismatch. Expected: {stored_otp['otp']}, Got: {user_otp}")
     return False
 
 def is_email_verified(email: str) -> bool:

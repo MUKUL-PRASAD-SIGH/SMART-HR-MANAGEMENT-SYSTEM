@@ -8,18 +8,31 @@ from otp_utils import generate_otp, send_otp_email, verify_otp, is_email_verifie
 
 #signup
 def signup_user(id, gmail, password, role, name):
-    con = connect_db()
-    cur = con.cursor()
+    print(f"🔍 Starting signup process for: {gmail}")
+    con = None
+    cur = None
     try:
+        con = connect_db()
+        cur = con.cursor()
+        
         # Check if user already exists
+        print("🔍 Checking for existing user...")
         cur.execute("SELECT id FROM users WHERE id = %s OR gmail = %s", (id, gmail))
-        if cur.fetchone():
-            st.error("User with this ID or email already exists")
+        existing_user = cur.fetchone()
+        
+        if existing_user:
+            error_msg = f"User with ID '{id}' or email '{gmail}' already exists"
+            print(f"❌ {error_msg}")
+            st.error(error_msg)
             return False
             
-        # Send OTP
+        # Generate and send OTP
+        print("🔑 Generating OTP...")
         otp = generate_otp(gmail)
+        print(f"✉️ Sending OTP to {gmail}...")
+        
         if send_otp_email(gmail, otp):
+            print("✅ OTP sent successfully")
             st.session_state.signup_data = {
                 'id': id,
                 'gmail': gmail,
@@ -27,20 +40,38 @@ def signup_user(id, gmail, password, role, name):
                 'role': role.lower(),
                 'name': name,
                 'otp_sent': True,
-                'otp_attempts': 0
+                'otp_attempts': 0,
+                'otp_code': otp  # Store OTP for verification
             }
             st.success("OTP sent to your email!")
             return True
         else:
-            st.error("Failed to send OTP. Please try again.")
+            error_msg = "Failed to send OTP. Please check your email address and try again."
+            print(f"❌ {error_msg}")
+            st.error(error_msg)
             return False
             
+    except pymysql.Error as db_err:
+        error_msg = f"Database error: {db_err}"
+        print(f"❌ {error_msg}")
+        st.error("An error occurred while processing your request. Please try again.")
+        return False
     except Exception as e:
-        st.error(f"Error during signup: {e}")
+        error_msg = f"Unexpected error: {str(e)}"
+        print(f"❌ {error_msg}")
+        st.error("An unexpected error occurred. Please try again.")
         return False
     finally:
-        cur.close()
-        con.close()
+        if cur:
+            try:
+                cur.close()
+            except:
+                pass
+        if con:
+            try:
+                con.close()
+            except:
+                pass
 # Login function with enhanced debugging
 def login_user(user_id, password):
     print("\n" + "="*50)
@@ -186,11 +217,20 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
             otp = st.text_input("Enter OTP")
             
             if st.button("Verify OTP"):
+                print(f"Verifying OTP for {st.session_state.signup_data['gmail']}")
+            print(f"Stored OTP data: {otp_storage.get(st.session_state.signup_data['gmail'], 'No OTP found')}")
+            print(f"User entered OTP: {otp}")
+            
+            if not otp:
+                st.error("Please enter the OTP")
+            else:
                 if verify_otp(st.session_state.signup_data['gmail'], otp):
+                    print("OTP verified successfully")
                     # OTP verified, complete registration
                     try:
                         con = connect_db()
                         cur = con.cursor()
+                        print("Attempting to insert user into database...")
                         cur.execute(
                             "INSERT INTO users (id, gmail, password, role, name) VALUES (%s, %s, %s, %s, %s)",
                             (
@@ -202,29 +242,44 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
                             )
                         )
                         con.commit()
+                        print("User created successfully in database")
                         st.success("Account created successfully! Please login.")
                         # Clear the signup data and OTP
                         clear_otp(st.session_state.signup_data['gmail'])
                         del st.session_state.signup_data
                         st.rerun()
-                    except pymysql.IntegrityError:
-                        st.error("This account could not be created. Please try again.")
+                    except pymysql.IntegrityError as ie:
+                        error_msg = f"This account could not be created: {str(ie)}"
+                        print(f"IntegrityError: {error_msg}")
+                        st.error("This account could not be created. The user ID or email might already be in use.")
+                    except pymysql.Error as dbe:
+                        error_msg = f"Database error: {str(dbe)}"
+                        print(f"Database error: {error_msg}")
+                        st.error("A database error occurred. Please try again.")
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        error_msg = f"Unexpected error: {str(e)}"
+                        print(f"Unexpected error: {error_msg}")
+                        st.error("An unexpected error occurred. Please try again.")
                     finally:
-                        if 'cur' in locals():
+                        if 'cur' in locals() and cur:
                             cur.close()
-                        if 'con' in locals():
+                        if 'con' in locals() and con:
                             con.close()
                 else:
+                    print("OTP verification failed")
+                    if 'otp_attempts' not in st.session_state.signup_data:
+                        st.session_state.signup_data['otp_attempts'] = 0
+                    
                     st.session_state.signup_data['otp_attempts'] += 1
+                    print(f"Failed attempt {st.session_state.signup_data['otp_attempts']}")
+                    
                     if st.session_state.signup_data['otp_attempts'] >= 3:
                         st.error("Too many failed attempts. Please try signing up again.")
                         clear_otp(st.session_state.signup_data['gmail'])
                         del st.session_state.signup_data
                         st.rerun()
                     else:
-                        st.error("Invalid OTP. Please try again.")
+                        st.error(f"Invalid OTP. {3 - st.session_state.signup_data['otp_attempts']} attempts remaining.")
             
             if st.button("Resend OTP"):
                 otp = generate_otp(st.session_state.signup_data['gmail'])

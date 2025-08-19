@@ -8,13 +8,17 @@ import streamlit as st
 
 def get_email_service():
     """Authenticate and return the Gmail service."""
+    import os
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     try:
-        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+        # Get the absolute path to credentials.json in the project root
+        credentials_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'credentials.json')
+        flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
         creds = flow.run_local_server(port=0)
         return build('gmail', 'v1', credentials=creds)
     except Exception as e:
         st.error(f"Failed to authenticate with Gmail: {e}")
+        st.error(f"Looking for credentials at: {credentials_path}")
         return None
 
 def get_header(headers: List[Dict[str, str]], name: str) -> Optional[str]:
